@@ -1,46 +1,91 @@
 import streamlit as st
+import validators
+from datetime import datetime
 import pandas as pd
 import numpy as np
 
-st.title('Test')
+st.title('Shopify products to Google Merchant Center')
 
-DATE_COLUMN = 'date/time'
-DATA_URL = ('https://s3-us-west-2.amazonaws.com/'
-         'streamlit-demo-data/uber-raw-data-sep14.csv.gz')
+df = pd.DataFrame()
 
 
-@st.cache
-def load_data(nrows):
-    data = pd.read_csv(DATA_URL, nrows=nrows)
-    lowercase = lambda x: str(x).lower()
-    data.rename(lowercase, axis='columns', inplace=True)
-    data[DATE_COLUMN] = pd.to_datetime(data[DATE_COLUMN])
-    return data
+def process_data(domain_input,quantity_filter,status_filter):
+    try:
+      #Process Data
+      #validate URL
+      if not (validators.url(domain_input)):
+        data_load_state = st.text('Error: Domain not valid.')
+        return
 
-uploaded_file = st.file_uploader("Choose a file")
-if uploaded_file is not None:
-  data_load_state = st.text('Loading data...')
-  df = pd.read_csv(uploaded_file)
-  data_load_state.text("Successfully imported!")
-  st.subheader('Imported Data')
-  st.write(df)
+      #remove trailing slash
+      if domain_input.endswith('/'):
+          domain_input = domain_input[:-1]
 
-# if st.checkbox('Show raw data'):
-#     st.subheader('Raw data')
-#     st.write(data)
+      data_load_state = st.text('Processing data...')
 
-# st.subheader('Number of pickups by hour')
+      df_filtered = df[(df['Title'].notnull()) & (df['Image Src'].notnull())]
 
-# hist_values = np.histogram(
-#     data[DATE_COLUMN].dt.hour, bins=24, range=(0,24))[0]
+      df_total_inventory = df.groupby(['Handle'], as_index=False)['Variant Inventory Qty'].sum()
 
-# st.bar_chart(hist_values)
+      merged_left = pd.merge(left=df_filtered, right=df_total_inventory, how='left', left_on='Handle', right_on='Handle')
 
-# st.subheader('Map of all pickups')
-# st.map(data)
+      # Select the ones you want
+      df_filtered = merged_left[['Handle','Title','Body (HTML)','Vendor','Published','Variant Price','Image Src','Variant Image','Status','Variant Inventory Qty_y']]
+      df_filtered = df_filtered[(df_filtered['Variant Inventory Qty_y'] >= quantity_filter)]
 
-# hour_to_filter = st.slider('hour', 0, 23, 17)  # min: 0h, max: 23h, default: 17h
-# filtered_data = data[data[DATE_COLUMN].dt.hour == hour_to_filter]
-# st.subheader(f'Map of all pickups at {hour_to_filter}:00')
-# st.map(filtered_data)
+      if(status_filter):
+        df_filtered = df_filtered[(df_filtered['Status'] == "active")]
+
+      #Create Categories Dataframe
+      df_export_data = pd.DataFrame(columns=["id","title","description","link","condition","price","availability","image_link","gtin","mpn","brand","google product category"])
+      for index, row in df_filtered.iterrows():
+              df2 = {
+                    'id': row['Handle'],
+                    'title': row['Title'],
+                    'link' : domain_input+"/products/"+row['Handle'],
+                    'image_link' : row['Image Src'],
+                    'brand' : row['Vendor'],
+                    'availability' : 'in_stock',
+                    'price' : '{0:.2f}'.format(row['Variant Price'])+' NZD'
+                    }
+              df_export_data = df_export_data.append(df2, ignore_index = True)
+
+      data_load_state = st.text('Completed.')
+      st.write(df_export_data)
+      # if st.checkbox('Show processed data'):
+      #   #st.subheader('Processed data')
+      #   st.dataframe(df_export_data)
+
+      # Export Data
+      csv = df_export_data.to_csv(index=False)
+      vendor_name = df_export_data.brand.loc[0]
+
+      st.download_button(
+      "Download",
+      csv,
+      vendor_name+"-"+datetime.today().strftime('%Y-%m-%d')+".csv",
+      "text/csv",
+      key='download-csv'
+      )
+    except Exception as e:
+            print("Error: "+ e)
+
+try:
+  #Upload Data
+  uploaded_file = st.file_uploader("Choose a CSV file",help="The file must be a product list exported from Shopify")
+  if uploaded_file is not None:
+    data_load_state = st.text('Loading data.')
+    df = pd.read_csv(uploaded_file)
+  
+    data_load_state.text("Successfully imported.")
+    st.write(df)
+
+    domain_input = st.text_input("Enter the brands domain name(starting with https://)", "https://exampledomain.com",help="This is required to create each of the product links in the export.")
+    quantity_filter = st.slider('Choose the minimum product stock level to include', min_value=0, max_value=100, value=10, step=5, help="Any products with a total stock quantity less than this amount will not be included in the export.")
+    status_filter = st.checkbox("Only include active products",True, help="If checked, only products with a status of active will be included in the export.")
+    if st.button("Process", key=None, help=None, args=None, kwargs=None):
+      process_data(domain_input,quantity_filter,status_filter)
+
+except Exception as e:
+        print("Error: "+ e)
 
