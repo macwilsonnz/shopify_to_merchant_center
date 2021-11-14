@@ -8,8 +8,11 @@ st.title('Shopify products to Google Merchant Center')
 
 df = pd.DataFrame()
 
+def _removeNonAscii(s):
+    return "".join(i for i in s if  ord(i)<128)
 
-def process_data(domain_input,quantity_filter,status_filter):
+
+def process_data(domain_input,quantity_filter,status_filter,include_description_filter):
     try:
       #Process Data
       #validate URL
@@ -36,6 +39,10 @@ def process_data(domain_input,quantity_filter,status_filter):
       if(status_filter):
         df_filtered = df_filtered[(df_filtered['Status'] == "active")]
 
+      df_filtered['Body'] = df_filtered['Body (HTML)'].replace(r'(<.*?>)+',"",regex=True)
+      df_filtered['Body'] =df_filtered['Body'].apply(_removeNonAscii)
+
+
       #Create Categories Dataframe
       df_export_data = pd.DataFrame(columns=["id","title","description","link","condition","price","availability","image_link","gtin","mpn","brand","google product category"])
       for index, row in df_filtered.iterrows():
@@ -48,6 +55,8 @@ def process_data(domain_input,quantity_filter,status_filter):
                     'availability' : 'in_stock',
                     'price' : '{0:.2f}'.format(row['Variant Price'])+' NZD'
                     }
+              if(include_description_filter):
+                df2['description'] = row['Body']
               df_export_data = df_export_data.append(df2, ignore_index = True)
 
       data_load_state = st.text('Completed.')
@@ -68,7 +77,8 @@ def process_data(domain_input,quantity_filter,status_filter):
       key='download-csv'
       )
     except Exception as e:
-            print("Error: "+ e)
+      data_load_state.text("Error processing file "+str(e))
+      print("Error: "+ e)
 
 try:
   #Upload Data
@@ -82,10 +92,14 @@ try:
 
     domain_input = st.text_input("Enter the brands domain name(starting with https://)", "https://exampledomain.com",help="This is required to create each of the product links in the export.")
     quantity_filter = st.slider('Choose the minimum product stock level to include', min_value=0, max_value=100, value=10, step=5, help="Any products with a total stock quantity less than this amount will not be included in the export.")
-    status_filter = st.checkbox("Only include active products",True, help="If checked, only products with a status of active will be included in the export.")
+    status_filter = st.checkbox("Only include active products in export",True, help="If checked, only products with a status of active will be included in the export.")
+    include_description_filter = st.checkbox("Include product description in export",True, help="If checked, product description will be included in the export.")
+    
     if st.button("Process", key=None, help=None, args=None, kwargs=None):
-      process_data(domain_input,quantity_filter,status_filter)
+      process_data(domain_input,quantity_filter,status_filter,include_description_filter)
 
 except Exception as e:
-        print("Error: "+ e)
+  error_string = str(e)
+  data_load_state.text("Error processing file")
+  print("Error: "+ error_string)
 
