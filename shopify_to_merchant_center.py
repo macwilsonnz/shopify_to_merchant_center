@@ -3,8 +3,10 @@ import validators
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import hashlib
 
 st.title('Shopify products to Google Merchant Center')
+
 
 df = pd.DataFrame()
 
@@ -46,8 +48,17 @@ def process_data(domain_input,quantity_filter,status_filter,include_description_
       #Create Categories Dataframe
       df_export_data = pd.DataFrame(columns=["id","title","description","link","condition","price","availability","image_link","gtin","mpn","brand","google product category"])
       for index, row in df_filtered.iterrows():
+              
+              #Hash ID
+              # encode the string
+              encoded_str = str(row['Handle']).encode()
+              # create a sha1 hash object initialized with the encoded string
+              hash_obj = hashlib.sha1(encoded_str)
+              # convert the hash object to a hexadecimal value
+              hexa_value = hash_obj.hexdigest()
+
               df2 = {
-                    'id': row['Handle'],
+                    'id': hexa_value,
                     'title': row['Title'],
                     'link' : domain_input+"/products/"+row['Handle'],
                     'image_link' : row['Image Src'],
@@ -61,10 +72,7 @@ def process_data(domain_input,quantity_filter,status_filter,include_description_
 
       data_load_state = st.text('Completed.')
       st.write(df_export_data)
-      # if st.checkbox('Show processed data'):
-      #   #st.subheader('Processed data')
-      #   st.dataframe(df_export_data)
-
+      
       # Export Data
       csv = df_export_data.to_csv(index=False)
 
